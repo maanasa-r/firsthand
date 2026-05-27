@@ -1,0 +1,5 @@
+inference
+opencv-python
+torch
+google-genai
+flask

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASL Coach</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+        }
+
+        #video-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* Glass Card */
+        #coaching-card {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            padding: 24px;
+            border-radius: 16px;
+            background: rgba(255, 243, 205, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            z-index: 10;
+            display: none;
+            transition: background 0.5s ease;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        #coaching-card h2 {
+            margin: 0 0 12px 0;
+            font-size: 24px;
+            text-align: center;
+        }
+
+        #coaching-card p {
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+        
+        #coaching-loader {
+            display: none;
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 12px;
+            text-align: center;
+            font-style: italic;
+        }
+
+        /* Bottom Prompt Box */
+        #prompt-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            width: 450px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50px;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: opacity 0.3s ease;
+        }
+
+        #prompt-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #prompt-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        #submit-btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease;
+            margin-left: 10px;
+        }
+
+        #submit-btn:hover {
+            transform: scale(1.05);
+            background: #f0f0f0;
+        }
+
+        /* Success Banner */
+        #success-banner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(40, 167, 69, 0.8);
+            z-index: 20;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 72px;
+            font-weight: 600;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <img id="video-background" src="/video_feed" alt="Video feed">
+
+    <div id="coaching-card">
+        <h2>Target: <span id="target-display"></span></h2>
+        <div style="text-align: center; margin-bottom: 12px;">
+            <img id="example-image" src="" alt="Sign Example" style="display: none; max-width: 150px; background: rgba(255, 255, 255, 0.8); border-radius: 8px; padding: 10px;">
+        </div>
+        <p id="coaching-feedback">Position your hand in frame...</p>
+        <div id="coaching-loader">Asking Gemini for advice...</div>
+    </div>
+
+    <div id="prompt-container">
+        <input type="text" id="prompt-input" placeholder="Enter one word or letter at a time to learn">
+        <button id="submit-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+        </button>
+    </div>
+
+    <div id="success-banner">Correct!</div>
+
+    <script>
+        const promptInput = document.getElementById('prompt-input');
+        const submitBtn = document.getElementById('submit-btn');
+        const coachingCard = document.getElementById('coaching-card');
+        const targetDisplay = document.getElementById('target-display');
+        const coachingFeedback = document.getElementById('coaching-feedback');
+        const coachingLoader = document.getElementById('coaching-loader');
+        const successBanner = document.getElementById('success-banner');
+
+        let activeTarget = null;
+        let matchStartTime = null;
+        let lastCoachingTime = 0;
+        let isSuccess = false;
+        let checkInterval = null;
+        let isFetchingCoaching = false;
+        
+        submitBtn.addEventListener('click', startPractice);
+        promptInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') startPractice();
+        });
+
+        function startPractice() {
+            const val = promptInput.value.trim().toUpperCase();
+            if (!val) return;
+            
+            activeTarget = val;
+            isSuccess = false;
+            matchStartTime = null;
+            lastCoachingTime = 0;
+            isFetchingCoaching = false;
+            
+            targetDisplay.innerText = activeTarget;
+            coachingFeedback.innerText = "Position your hand in frame...";
+            coachingCard.style.display = 'block';
+            coachingCard.style.background = 'rgba(255, 243, 205, 0.45)'; 
+            
+            const exampleImage = document.getElementById('example-image');
+            if (/^[A-Z]$/.test(activeTarget)) {
+                exampleImage.src = `/static/images/${activeTarget}.svg`;
+                exampleImage.style.display = 'inline-block';
+            } else {
+                exampleImage.style.display = 'none';
+            }
+            
+            promptInput.value = '';
+            promptInput.blur();
+            
+            if (checkInterval) clearInterval(checkInterval);
+            checkInterval = setInterval(checkState, 200);
+        }
+
+        async function checkState() {
+            if (!activeTarget || isSuccess) return;
+
+            try {
+                const res = await fetch('/api/current_state');
+                const data = await res.json();
+                const detected = data.detection ? data.detection.toUpperCase() : null;
+
+                if (detected === activeTarget) {
+                    if (!matchStartTime) {
+                        matchStartTime = Date.now();
+                    } else if (Date.now() - matchStartTime >= 1500) {
+                        triggerSuccess();
+                    }
+                    if (!isFetchingCoaching) {
+                        coachingFeedback.innerText = "Holding target...";
+                    }
+                } else {
+                    matchStartTime = null;
+                    
+                    if (detected) {
+                        if (Date.now() - lastCoachingTime > 5000 && !isFetchingCoaching) {
+                            requestCoaching(detected);
+                        } else if (!isFetchingCoaching) {
+                            coachingFeedback.innerText = `It looks like you are trying to sign ${detected}. Adjust your hand to match ${activeTarget}.`;
+                        }
+                    } else {
+                        if (!isFetchingCoaching) {
+                            coachingFeedback.innerText = "No hand detected. Please position your hand in frame.";
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching state:", err);
+            }
+        }
+
+        async function requestCoaching(detected) {
+            isFetchingCoaching = true;
+            lastCoachingTime = Date.now();
+            coachingLoader.style.display = 'block';
+            coachingFeedback.innerText = `It looks like you are trying to sign ${detected}.`;
+
+            try {
+                const res = await fetch('/api/get_coaching', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target: activeTarget, detected: detected })
+                });
+                const data = await res.json();
+                
+                if (data.coaching) {
+                    coachingFeedback.innerText = `It looks like you are trying to sign ${detected}. ${data.coaching}`;
+                } else {
+                    coachingFeedback.innerText = `It looks like you are trying to sign ${detected}. Adjust your fingers.`;
+                }
+            } catch (err) {
+                console.error("Coaching error:", err);
+            } finally {
+                coachingLoader.style.display = 'none';
+                isFetchingCoaching = false;
+            }
+        }
+
+        function triggerSuccess() {
+            isSuccess = true;
+            clearInterval(checkInterval);
+
+            coachingCard.style.background = 'rgba(40, 167, 69, 0.3)';
+            coachingFeedback.innerText = "Perfect!";
+            successBanner.style.opacity = '1';
+
+            setTimeout(() => {
+                successBanner.style.opacity = '0';
+                coachingCard.style.display = 'none';
+                activeTarget = null;
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
